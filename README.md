@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ## Masked Autoencoders: A PyTorch Implementation
 
 <p align="center">
@@ -154,3 +155,6 @@ The pre-training instruction is in [PRETRAIN.md](PRETRAIN.md).
 ### License
 
 This project is under the CC-BY-NC 4.0 license. See [LICENSE](LICENSE) for details.
+=======
+# AgriCLIP
+>>>>>>> 64702ecfe51115a6bc42f624a396e8de39e3155a
