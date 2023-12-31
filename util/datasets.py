@@ -10,18 +10,96 @@
 
 import os
 import PIL
-
+import pandas as pd
 from torchvision import datasets, transforms
 
 from timm.data import create_transform
 from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from torch.utils.data import Dataset
+from torch import nn
+from PIL import Image
+import glob
+import torch
+from sklearn.model_selection import train_test_split
+import numpy as np
+
+
+class FishDataset4(Dataset):
+    def __init__(self, root, transforms, is_train=True):
+
+        self.root=root
+        self.transforms=transforms
+        label_mapping = {k: v for v, k in enumerate(os.listdir(self.root))}
+
+        all_images = glob.glob(os.path.join(self.root,"*", "*"))
+        all_images = [im for im in all_images if im.split(".")[-1]!="svg"]
+        target = [label_mapping[path.split("/")[-2]] for path in all_images]
+        np_images = np.array(all_images)
+        np_target = np.array(target)
+
+        x_train, x_test, y_train, y_test = train_test_split(np_images, np_target, test_size=0.3, random_state=32)
+        if is_train:
+            self.X = x_train
+            self.Y = y_train
+        else:
+            self.X = x_test
+            self.Y = y_test
+
+    def __len__(self):
+         return len(self.X)
+    
+    def __getitem__(self, idx):
+
+        x = Image.open(self.X[idx]).convert("RGB")
+        label  = self.Y[idx]
+
+        if self.transforms:
+            x = self.transforms(x)
+
+        return x, torch.tensor(label)
+
+
+class FishDataset10(Dataset):
+    def __init__(self, root, transforms, is_train=True):
+
+        self.root=root
+        self.transforms=transforms
+        if is_train:
+            self.df  = pd.read_csv(os.path.join(self.root, "train.csv"))
+        else:
+            self.df  = pd.read_csv(os.path.join(self.root, "val.csv"))
+        self.X = []
+        self.Y = []
+        for index, row in self.df.iterrows():
+            self.X.append(os.path.join(self.root, row['ID'] + ".jpg"))
+            self.Y.append(row['labels'])
+
+    def __len__(self):
+         return len(self.X)
+    
+    def __getitem__(self, idx):
+
+        x = Image.open(self.X[idx])
+        label  = self.Y[idx]
+
+        if self.transforms:
+            x = self.transforms(x)
+
+        return x, torch.tensor(label)
 
 
 def build_dataset(is_train, args):
     transform = build_transform(is_train, args)
 
-    root = os.path.join(args.data_path, 'train' if is_train else 'val')
-    dataset = datasets.ImageFolder(root, transform=transform)
+    if args.dataset_type == "fish10":
+        #dataset = datasets.ImageFolder(args.data_path, transform=transform)
+        dataset = FishDataset10(args.data_path, transform, is_train=is_train)
+    elif args.dataset_type == "fish4":
+        dataset = FishDataset4(args.data_path, transform, is_train=is_train)
+    else:
+
+        root = os.path.join(args.data_path, 'train' if is_train else 'val')
+        dataset = datasets.ImageFolder(root, transform=transform)
 
     print(dataset)
 

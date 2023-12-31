@@ -16,14 +16,14 @@ import numpy as np
 import os
 import time
 from pathlib import Path
-
+from torch import nn
 import torch
 import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 
 import timm
 
-assert timm.__version__ == "0.3.2" # version check
+#assert timm.__version__ == "0.3.2" # version check
 from timm.models.layers import trunc_normal_
 from timm.data.mixup import Mixup
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
@@ -37,7 +37,8 @@ from util.misc import NativeScalerWithGradNormCount as NativeScaler
 import models_vit
 
 from engine_finetune import train_one_epoch, evaluate
-
+import os
+os.environ['TORCH_HOME']="/l/users/hanan.ghani"
 
 def get_args_parser():
     parser = argparse.ArgumentParser('MAE fine-tuning for image classification', add_help=False)
@@ -145,6 +146,7 @@ def get_args_parser():
     parser.set_defaults(pin_mem=True)
 
     # distributed training parameters
+    # parser.add_argument('--distributed', default=False, type=bool)
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
     parser.add_argument('--local_rank', default=-1, type=int)
@@ -152,7 +154,24 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://',
                         help='url used to set up distributed training')
 
+    parser.add_argument('--model_type', default='dinov2', help='model type for finetuning')
+    parser.add_argument('--split', default='train', help='data split for fish dataset 10')
+    parser.add_argument('--dataset_type', default='fish', help='data set for finetuning')
+
     return parser
+
+
+class Dinov2Model(nn.Module):
+    def __init__(self, n_classes=2):
+        super(Dinov2Model, self).__init__()
+        self.dinov2_vitb14 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14')
+        self.head = nn.Linear(768, n_classes)
+
+    def forward(self,x):
+        x = self.dinov2_vitb14(x)
+        x = self.head(x)
+        
+        return x
 
 
 def main(args):
@@ -170,8 +189,11 @@ def main(args):
 
     cudnn.benchmark = True
 
+
     dataset_train = build_dataset(is_train=True, args=args)
     dataset_val = build_dataset(is_train=False, args=args)
+
+    print(np.unique(dataset_train.Y),np.unique(dataset_val.Y))
 
     if True:  # args.distributed:
         num_tasks = misc.get_world_size()
@@ -224,11 +246,19 @@ def main(args):
             prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
             label_smoothing=args.smoothing, num_classes=args.nb_classes)
     
-    model = models_vit.__dict__[args.model](
-        num_classes=args.nb_classes,
-        drop_path_rate=args.drop_path,
-        global_pool=args.global_pool,
-    )
+    
+    if args.model_type=="dinov2":
+        model = Dinov2Model(args.nb_classes)
+    else:
+
+        model = models_vit.__dict__[args.model](
+            num_classes=args.nb_classes,
+            drop_path_rate=args.drop_path,
+            global_pool=args.global_pool,
+        )
+
+    # for param in model.parameters():
+    #     param.requires_grad=True
 
     if args.finetune and not args.eval:
         checkpoint = torch.load(args.finetune, map_location='cpu')
@@ -275,16 +305,20 @@ def main(args):
     print("accumulate grad iterations: %d" % args.accum_iter)
     print("effective batch size: %d" % eff_batch_size)
 
+
+
+
+    args.distributed=False
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module
 
     # build optimizer with layer-wise lr decay (lrd)
     param_groups = lrd.param_groups_lrd(model_without_ddp, args.weight_decay,
-        no_weight_decay_list=model_without_ddp.no_weight_decay(),
+       # no_weight_decay_list=model_without_ddp.dinov2_vitb14.no_weight_decay(),
         layer_decay=args.layer_decay
     )
-    optimizer = torch.optim.AdamW(param_groups, lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr) #param_groups
     loss_scaler = NativeScaler()
 
     if mixup_fn is not None:
@@ -300,6 +334,9 @@ def main(args):
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
     if args.eval:
+        ckpt  = torch.load(args.finetune)
+        msg = model.load_state_dict(ckpt)
+        print(msg)
         test_stats = evaluate(data_loader_val, model, device)
         print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
         exit(0)
