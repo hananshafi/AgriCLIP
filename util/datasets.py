@@ -67,7 +67,7 @@ class FishDataset10(Dataset):
         if is_train:
             self.df  = pd.read_csv(os.path.join(self.root, "train.csv"))
         else:
-            self.df  = pd.read_csv(os.path.join(self.root, "val.csv"))
+            self.df  = pd.read_csv(os.path.join(self.root, "test.csv"))
         self.X = []
         self.Y = []
         for index, row in self.df.iterrows():
@@ -96,9 +96,12 @@ def build_dataset(is_train, args):
         dataset = FishDataset10(args.data_path, transform, is_train=is_train)
     elif args.dataset_type == "fish4":
         dataset = FishDataset4(args.data_path, transform, is_train=is_train)
+    elif args.dataset_type == "agri":
+        root = os.path.join(args.data_path, 'train' if is_train else 'validation')
+        dataset = datasets.ImageFolder(root, transform=transform)
     else:
-
-        root = os.path.join(args.data_path, 'train' if is_train else 'val')
+        
+        root = os.path.join(args.data_path, 'train' if is_train else 'test')
         dataset = datasets.ImageFolder(root, transform=transform)
 
     print(dataset)

@@ -193,7 +193,6 @@ def main(args):
     dataset_train = build_dataset(is_train=True, args=args)
     dataset_val = build_dataset(is_train=False, args=args)
 
-    print(np.unique(dataset_train.Y),np.unique(dataset_val.Y))
 
     if True:  # args.distributed:
         num_tasks = misc.get_world_size()
@@ -334,7 +333,7 @@ def main(args):
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
     if args.eval:
-        ckpt  = torch.load(args.finetune)
+        ckpt  = torch.load(args.finetune)['model']
         msg = model.load_state_dict(ckpt)
         print(msg)
         test_stats = evaluate(data_loader_val, model, device)
